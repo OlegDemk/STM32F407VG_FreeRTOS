@@ -20,16 +20,25 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-#include "usb_host.h"
+#include "usb_device.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "string.h"
+#include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
+typedef StaticTask_t osStaticThreadDef_t;
+typedef StaticQueue_t osStaticMessageQDef_t;
+typedef StaticSemaphore_t osStaticSemaphoreDef_t;
 /* USER CODE BEGIN PTD */
 
+typedef struct 				// Створення користувацький тип одного емемента черги
+{
+	char Buf[128];
+}QUEUE_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -38,30 +47,114 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+char str_management_memory_str[1000] = {0};
+int freemem = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim4;
+
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
+uint32_t defaultTaskBuffer[ 128 ];
+osStaticThreadDef_t defaultTaskControlBlock;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .cb_mem = &defaultTaskControlBlock,
+  .cb_size = sizeof(defaultTaskControlBlock),
+  .stack_mem = &defaultTaskBuffer[0],
+  .stack_size = sizeof(defaultTaskBuffer),
   .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for LED_BLUE_BLINK */
+osThreadId_t LED_BLUE_BLINKHandle;
+uint32_t LED_BLUE_BLINKBuffer[ 128 ];
+osStaticThreadDef_t LED_BLUE_BLINKControlBlock;
+const osThreadAttr_t LED_BLUE_BLINK_attributes = {
+  .name = "LED_BLUE_BLINK",
+  .cb_mem = &LED_BLUE_BLINKControlBlock,
+  .cb_size = sizeof(LED_BLUE_BLINKControlBlock),
+  .stack_mem = &LED_BLUE_BLINKBuffer[0],
+  .stack_size = sizeof(LED_BLUE_BLINKBuffer),
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for LED_YELLOW_ADC */
+osThreadId_t LED_YELLOW_ADCHandle;
+uint32_t LED_YELLOW_TaskBuffer[ 128 ];
+osStaticThreadDef_t LED_YELLOW_TaskControlBlock;
+const osThreadAttr_t LED_YELLOW_ADC_attributes = {
+  .name = "LED_YELLOW_ADC",
+  .cb_mem = &LED_YELLOW_TaskControlBlock,
+  .cb_size = sizeof(LED_YELLOW_TaskControlBlock),
+  .stack_mem = &LED_YELLOW_TaskBuffer[0],
+  .stack_size = sizeof(LED_YELLOW_TaskBuffer),
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for UART_Task */
+osThreadId_t UART_TaskHandle;
+uint32_t UART_TaskBuffer[ 128 ];
+osStaticThreadDef_t UART_TaskControlBlock;
+const osThreadAttr_t UART_Task_attributes = {
+  .name = "UART_Task",
+  .cb_mem = &UART_TaskControlBlock,
+  .cb_size = sizeof(UART_TaskControlBlock),
+  .stack_mem = &UART_TaskBuffer[0],
+  .stack_size = sizeof(UART_TaskBuffer),
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for ADC_Task */
+osThreadId_t ADC_TaskHandle;
+uint32_t ADC_TaskBuffer[ 128 ];
+osStaticThreadDef_t ADC_TaskControlBlock;
+const osThreadAttr_t ADC_Task_attributes = {
+  .name = "ADC_Task",
+  .cb_mem = &ADC_TaskControlBlock,
+  .cb_size = sizeof(ADC_TaskControlBlock),
+  .stack_mem = &ADC_TaskBuffer[0],
+  .stack_size = sizeof(ADC_TaskBuffer),
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for TeadBtn_Task */
+osThreadId_t TeadBtn_TaskHandle;
+uint32_t TeadBtn_TaskBuffer[ 128 ];
+osStaticThreadDef_t TeadBtn_TaskControlBlock;
+const osThreadAttr_t TeadBtn_Task_attributes = {
+  .name = "TeadBtn_Task",
+  .cb_mem = &TeadBtn_TaskControlBlock,
+  .cb_size = sizeof(TeadBtn_TaskControlBlock),
+  .stack_mem = &TeadBtn_TaskBuffer[0],
+  .stack_size = sizeof(TeadBtn_TaskBuffer),
+  .priority = (osPriority_t) osPriorityHigh,
+};
+/* Definitions for UARTQueue */
+osMessageQueueId_t UARTQueueHandle;
+uint8_t UARTQueueBuffer[ 10 * sizeof( QUEUE_t ) ];
+osStaticMessageQDef_t UARTQueueControlBlock;
+const osMessageQueueAttr_t UARTQueue_attributes = {
+  .name = "UARTQueue",
+  .cb_mem = &UARTQueueControlBlock,
+  .cb_size = sizeof(UARTQueueControlBlock),
+  .mq_mem = &UARTQueueBuffer,
+  .mq_size = sizeof(UARTQueueBuffer)
+};
+/* Definitions for BtnSem */
+osSemaphoreId_t BtnSemHandle;
+osStaticSemaphoreDef_t BtnSemControlBlock;
+const osSemaphoreAttr_t BtnSem_attributes = {
+  .name = "BtnSem",
+  .cb_mem = &BtnSemControlBlock,
+  .cb_size = sizeof(BtnSemControlBlock),
 };
 /* USER CODE BEGIN PV */
-osThreadId_t GREENLEDTaskHandle;
-const osThreadAttr_t GREENLEDTask_attributes = {
-  .name = "Green_LED",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,10 +163,17 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_TIM4_Init(void);
 void StartDefaultTask(void *argument);
+void StartLED_BLUE_BLINK(void *argument);
+void StartLED_YELLOW_ADC(void *argument);
+void StartUART_Task(void *argument);
+void StartADC_Task(void *argument);
+void StartTeadBtn_Task(void *argument);
 
 /* USER CODE BEGIN PFP */
-void GREEN_LED_Task(void *argument);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -112,7 +212,11 @@ int main(void)
   MX_I2C1_Init();
   MX_I2S3_Init();
   MX_SPI1_Init();
+  MX_ADC1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+  HAL_ADC_Start(&hadc1);
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 
   /* USER CODE END 2 */
 
@@ -123,6 +227,10 @@ int main(void)
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
+  /* Create the semaphores(s) */
+  /* creation of BtnSem */
+  BtnSemHandle = osSemaphoreNew(1, 0, &BtnSem_attributes);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -130,6 +238,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
+
+  /* Create the queue(s) */
+  /* creation of UARTQueue */
+  UARTQueueHandle = osMessageQueueNew (10, sizeof(QUEUE_t), &UARTQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -139,10 +251,25 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
+  /* creation of LED_BLUE_BLINK */
+  LED_BLUE_BLINKHandle = osThreadNew(StartLED_BLUE_BLINK, NULL, &LED_BLUE_BLINK_attributes);
+
+  /* creation of LED_YELLOW_ADC */
+  LED_YELLOW_ADCHandle = osThreadNew(StartLED_YELLOW_ADC, NULL, &LED_YELLOW_ADC_attributes);
+
+  /* creation of UART_Task */
+  UART_TaskHandle = osThreadNew(StartUART_Task, NULL, &UART_Task_attributes);
+
+  /* creation of ADC_Task */
+  ADC_TaskHandle = osThreadNew(StartADC_Task, NULL, &ADC_Task_attributes);
+
+  /* creation of TeadBtn_Task */
+  TeadBtn_TaskHandle = osThreadNew(StartTeadBtn_Task, NULL, &TeadBtn_Task_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
-  GREENLEDTaskHandle = osThreadNew(GREEN_LED_Task, NULL, &GREENLEDTask_attributes);
+
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
@@ -170,7 +297,6 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
   */
@@ -204,13 +330,72 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
-  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
-  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+  ADC_InjectionConfTypeDef sConfigInjected = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
   }
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_9;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configures for the selected ADC injected channel its corresponding rank in the sequencer and its sample time
+  */
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_9;
+  sConfigInjected.InjectedRank = 1;
+  sConfigInjected.InjectedNbrOfConversion = 1;
+  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_3CYCLES;
+  sConfigInjected.ExternalTrigInjecConvEdge = ADC_EXTERNALTRIGINJECCONVEDGE_NONE;
+  sConfigInjected.ExternalTrigInjecConv = ADC_INJECTED_SOFTWARE_START;
+  sConfigInjected.AutoInjectedConv = DISABLE;
+  sConfigInjected.InjectedDiscontinuousConvMode = DISABLE;
+  sConfigInjected.InjectedOffset = 0;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -320,6 +505,55 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 300;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 4095;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_ENABLE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -343,8 +577,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
-                          |Audio_RST_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, LD3_Pin|LD5_Pin|LD6_Pin|Audio_RST_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : CS_I2C_SPI_Pin */
   GPIO_InitStruct.Pin = CS_I2C_SPI_Pin;
@@ -368,11 +601,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
   HAL_GPIO_Init(PDM_OUT_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BOOT1_Pin */
   GPIO_InitStruct.Pin = BOOT1_Pin;
@@ -388,10 +621,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
   HAL_GPIO_Init(CLK_IN_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD4_Pin LD3_Pin LD5_Pin LD6_Pin
-                           Audio_RST_Pin */
-  GPIO_InitStruct.Pin = LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
-                          |Audio_RST_Pin;
+  /*Configure GPIO pins : LD3_Pin LD5_Pin LD6_Pin Audio_RST_Pin */
+  GPIO_InitStruct.Pin = LD3_Pin|LD5_Pin|LD6_Pin|Audio_RST_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -412,16 +643,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void GREEN_LED_Task(void *argument)
-{
-	for(;;)
-	{
-		HAL_GPIO_WritePin(GPIOD, LD4_Pin ,GPIO_PIN_RESET);
-		osDelay(900);
-		HAL_GPIO_WritePin(GPIOD,LD4_Pin ,GPIO_PIN_SET);
-		osDelay(100);
-	}
-}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -433,18 +655,152 @@ void GREEN_LED_Task(void *argument)
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
-  /* init code for USB_HOST */
-  MX_USB_HOST_Init();
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
   for(;;)
   {
-//	  HAL_GPIO_WritePin(GPIOD, LD4_Pin ,GPIO_PIN_RESET);
-//      osDelay(1000);
-//	  HAL_GPIO_WritePin(GPIOD,LD4_Pin ,GPIO_PIN_SET);
-//      osDelay(80);
+    osDelay(1);
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartLED_BLUE_BLINK */
+/**
+* @brief Function implementing the LED_BLUE_BLINK thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartLED_BLUE_BLINK */
+void StartLED_BLUE_BLINK(void *argument)
+{
+  /* USER CODE BEGIN StartLED_BLUE_BLINK */
+  /* Infinite loop */
+  for(;;)
+  {
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
+	  osDelay(100);
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET);
+	  osDelay(900);
+  }
+  /* USER CODE END StartLED_BLUE_BLINK */
+}
+
+/* USER CODE BEGIN Header_StartLED_YELLOW_ADC */
+/**
+* @brief Function implementing the LED_YELLOW_ADC thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartLED_YELLOW_ADC */
+void StartLED_YELLOW_ADC(void *argument)
+{
+  /* USER CODE BEGIN StartLED_YELLOW_ADC */
+  /* Infinite loop */
+  for(;;)
+  {
+	  if(osSemaphoreAcquire(BtnSemHandle, osWaitForever) == osOK);							// Waiting on press button
+	  {
+		  HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+
+//		  char test_str[] = "HELLO \n\r";
+//		  CDC_Transmit_FS(test_str, sizeof(test_str));
+
+		  osDelay(100);
+	  }
+	  osDelay(100);
+  }
+  /* USER CODE END StartLED_YELLOW_ADC */
+}
+
+/* USER CODE BEGIN Header_StartUART_Task */
+/**
+* @brief Function implementing the UART_Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUART_Task */
+void StartUART_Task(void *argument)
+{
+  /* USER CODE BEGIN StartUART_Task */
+  /* Infinite loop */
+	QUEUE_t msg;
+  for(;;)
+  {
+	osMessageQueueGet(UARTQueueHandle, &msg, 0, osWaitForever);		// Write for data on queue
+	CDC_Transmit_FS(msg.Buf, sizeof(msg.Buf));						// Transmit data over virtual comport
+    osDelay(1);
+  }
+  /* USER CODE END StartUART_Task */
+}
+
+/* USER CODE BEGIN Header_StartADC_Task */
+/**
+* @brief Function implementing the ADC_Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartADC_Task */
+void StartADC_Task(void *argument)
+{
+  /* USER CODE BEGIN StartADC_Task */
+  /* Infinite loop */
+  for(;;)
+  {
+	  HAL_ADC_Start(&hadc1);
+	  uint16_t adc_res = HAL_ADC_GetValue(&hadc1);						// Read Voltage on potentiometer
+	  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, adc_res);			// Set PWM generation
+	  osDelay(100);
+  }
+  /* USER CODE END StartADC_Task */
+}
+
+/* USER CODE BEGIN Header_StartTeadBtn_Task */
+/**
+* @brief Function implementing the TeadBtn_Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTeadBtn_Task */
+void StartTeadBtn_Task(void *argument)
+{
+  /* USER CODE BEGIN StartTeadBtn_Task */
+  /* Infinite loop */
+	QUEUE_t msg;
+  for(;;)
+  {
+	  if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0))
+	  {
+		  osSemaphoreRelease(BtnSemHandle);								// Set BtnSemHandle semaphore
+		  strcpy(msg.Buf, "Btn pressed!!!\r\n");						// Write message
+		  osMessageQueuePut(UARTQueueHandle, &msg, 0, osWaitForever);	// Write data on queue
+		  osDelay(300);
+	  }
+	  osDelay(100);
+  }
+  /* USER CODE END StartTeadBtn_Task */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM2 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM2) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
 }
 
 /**
