@@ -706,7 +706,6 @@ void StartLED_YELLOW_ADC(void *argument)
 
 //		  char test_str[] = "HELLO \n\r";
 //		  CDC_Transmit_FS(test_str, sizeof(test_str));
-
 		  osDelay(100);
 	  }
 	  osDelay(100);
