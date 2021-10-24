@@ -134,6 +134,13 @@ const osThreadAttr_t TeadBtn_Task_attributes = {
   .stack_size = sizeof(TeadBtn_TaskBuffer),
   .priority = (osPriority_t) osPriorityHigh,
 };
+/* Definitions for ShowResources */
+osThreadId_t ShowResourcesHandle;
+const osThreadAttr_t ShowResources_attributes = {
+  .name = "ShowResources",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* Definitions for UARTQueue */
 osMessageQueueId_t UARTQueueHandle;
 uint8_t UARTQueueBuffer[ 10 * sizeof( QUEUE_t ) ];
@@ -171,6 +178,7 @@ void StartLED_YELLOW_ADC(void *argument);
 void StartUART_Task(void *argument);
 void StartADC_Task(void *argument);
 void StartTeadBtn_Task(void *argument);
+void StartShowResources(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -229,7 +237,7 @@ int main(void)
 
   /* Create the semaphores(s) */
   /* creation of BtnSem */
-  BtnSemHandle = osSemaphoreNew(1, 0, &BtnSem_attributes);
+  BtnSemHandle = osSemaphoreNew(1, 1, &BtnSem_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -265,6 +273,9 @@ int main(void)
 
   /* creation of TeadBtn_Task */
   TeadBtn_TaskHandle = osThreadNew(StartTeadBtn_Task, NULL, &TeadBtn_Task_attributes);
+
+  /* creation of ShowResources */
+  ShowResourcesHandle = osThreadNew(StartShowResources, NULL, &ShowResources_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -780,6 +791,66 @@ void StartTeadBtn_Task(void *argument)
 	  osDelay(100);
   }
   /* USER CODE END StartTeadBtn_Task */
+}
+
+/* USER CODE BEGIN Header_StartShowResources */
+/**
+* @brief Function implementing the ShowResources thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartShowResources */
+void StartShowResources(void *argument)
+{
+  /* USER CODE BEGIN StartShowResources */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(2000);
+
+    char str_freememory[20] = {0};
+    char buff[10] = {0};
+    strcat(str_freememory, "Free memory: ");
+
+    freemem = xPortGetFreeHeapSize();							// Function return how many free memory.
+    itoa(freemem, buff, 10);
+    strcat(str_freememory, buff);
+
+    vTaskList(str_management_memory_str);						// Fill in str_management_memory_str array management task information
+//    strcat(str_management_memory_str, str_freememory);			// Add to the end of strint
+
+    char str_sig = '-';
+    char str_end_of_line[3] = {'\r','\n'};
+    int sum = 0;
+    for(int i = 0; i <= sizeof(str_management_memory_str); i++)
+    {
+    	if(str_management_memory_str[i] == '\0')
+    	{
+    		for(uint8_t j = 0; j<= 40; j++)
+    		{
+    			sum = i + j;
+    			str_management_memory_str[sum] = str_sig;
+    		}
+// 			strcat(str_management_memory_str, str_end_of_line);
+//    		strcat(str_management_memory_str, str_freememory);
+
+//    		strcat(str_management_memory_str, str_end_of_line);
+//    	    strcat(str_management_memory_str, str_freememory);			// Add to the end of string
+//    	    strcat(str_management_memory_str, str_end_of_line);
+    		str_management_memory_str[sum++] = '\r';
+    		str_management_memory_str[sum++] = '\n';
+
+//      	strcat(str_management_memory_str, str_freememory);
+//
+//    		strcat(str_management_memory_str, '\n');
+
+    		CDC_Transmit_FS(str_management_memory_str, sizeof(str_management_memory_str));
+    		//CDC_Transmit_FS(str_end_of_line, sizeof(str_end_of_line));
+    		break;
+    	}
+    }
+  }
+  /* USER CODE END StartShowResources */
 }
 
 /**
