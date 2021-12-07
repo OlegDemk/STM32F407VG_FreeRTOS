@@ -14,5 +14,6 @@ Sourses:
 1. https://www.youtube.com/watch?v=wTK11IDpg7s&list=RDCMUC2vcuP7iWaX0MVG6hJ-cOkg&index=5
 2. https://www.youtube.com/watch?v=JKkyF53AAM4&t=771s
 
-![alt text].(https://github.com/OlegDemk/STM32F407VG_FreeRTOS/blob/TASKS_RESOURCES_MONITOR/photo.jpg)
+
+![alt text](https://github.com/OlegDemk/STM32F407VG_FreeRTOS/blob/TASKS_RESOURCES_MONITOR/photo.jpg)
 
