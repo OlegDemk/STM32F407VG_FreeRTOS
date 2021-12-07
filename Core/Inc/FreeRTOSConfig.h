@@ -44,6 +44,7 @@
  *----------------------------------------------------------*/
 
 /* USER CODE BEGIN Includes */
+extern volatile unsigned long ulHighFreqebcyTimerTicks;
 /* Section where include file can be added */
 /* USER CODE END Includes */
 
@@ -82,6 +83,7 @@
 #define configQUEUE_REGISTRY_SIZE                8
 #define configCHECK_FOR_STACK_OVERFLOW           1
 #define configUSE_RECURSIVE_MUTEXES              1
+#define configUSE_APPLICATION_TASK_TAG           1
 #define configUSE_COUNTING_SEMAPHORES            1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  0
 /* USER CODE BEGIN MESSAGE_BUFFER_LENGTH_TYPE */
@@ -91,7 +93,7 @@
 /* USER CODE END MESSAGE_BUFFER_LENGTH_TYPE */
 
 /* Co-routine definitions. */
-#define configUSE_CO_ROUTINES                    0
+#define configUSE_CO_ROUTINES                    1
 #define configMAX_CO_ROUTINE_PRIORITIES          ( 2 )
 
 /* Software timer definitions. */
@@ -175,8 +177,12 @@ standard names. */
 
 /* USER CODE BEGIN 2 */
 /* Definitions needed when configGENERATE_RUN_TIME_STATS is on */
-#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS configureTimerForRunTimeStats
-#define portGET_RUN_TIME_COUNTER_VALUE getRunTimeCounterValue
+
+//#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS configureTimerForRunTimeStats
+//#define portGET_RUN_TIME_COUNTER_VALUE getRunTimeCounterValue
+
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() (ulHighFreqebcyTimerTicks = 0UL)
+#define portGET_RUN_TIME_COUNTER_VALUE() ulHighFreqebcyTimerTicks
 /* USER CODE END 2 */
 
 /* USER CODE BEGIN Defines */

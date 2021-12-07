@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "usbd_cdc_if.h"
+#include "task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,10 +36,14 @@ typedef StaticQueue_t osStaticMessageQDef_t;
 typedef StaticSemaphore_t osStaticSemaphoreDef_t;
 /* USER CODE BEGIN PTD */
 
-typedef struct 				// Створення користувацький тип одного емемента черги
+typedef struct 							//Queue
 {
-	char Buf[128];
+	char Buf[1024];
 }QUEUE_t;
+
+volatile unsigned long ulHighFreqebcyTimerTicks;		// This variable using for calculate how many time all tasks was running.
+
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -60,6 +65,7 @@ I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
 /* Definitions for defaultTask */
@@ -100,7 +106,7 @@ const osThreadAttr_t LED_YELLOW_ADC_attributes = {
 };
 /* Definitions for UART_Task */
 osThreadId_t UART_TaskHandle;
-uint32_t UART_TaskBuffer[ 128 ];
+uint32_t UART_TaskBuffer[ 1024 ];
 osStaticThreadDef_t UART_TaskControlBlock;
 const osThreadAttr_t UART_Task_attributes = {
   .name = "UART_Task",
@@ -124,7 +130,7 @@ const osThreadAttr_t ADC_Task_attributes = {
 };
 /* Definitions for TeadBtn_Task */
 osThreadId_t TeadBtn_TaskHandle;
-uint32_t TeadBtn_TaskBuffer[ 128 ];
+uint32_t TeadBtn_TaskBuffer[ 1024 ];
 osStaticThreadDef_t TeadBtn_TaskControlBlock;
 const osThreadAttr_t TeadBtn_Task_attributes = {
   .name = "TeadBtn_Task",
@@ -132,13 +138,13 @@ const osThreadAttr_t TeadBtn_Task_attributes = {
   .cb_size = sizeof(TeadBtn_TaskControlBlock),
   .stack_mem = &TeadBtn_TaskBuffer[0],
   .stack_size = sizeof(TeadBtn_TaskBuffer),
-  .priority = (osPriority_t) osPriorityHigh,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for ShowResources */
 osThreadId_t ShowResourcesHandle;
 const osThreadAttr_t ShowResources_attributes = {
   .name = "ShowResources",
-  .stack_size = 128 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for UARTQueue */
@@ -172,6 +178,7 @@ static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM3_Init(void);
 void StartDefaultTask(void *argument);
 void StartLED_BLUE_BLINK(void *argument);
 void StartLED_YELLOW_ADC(void *argument);
@@ -222,9 +229,14 @@ int main(void)
   MX_SPI1_Init();
   MX_ADC1_Init();
   MX_TIM4_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADC_Start(&hadc1);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+
+
+  HAL_TIM_Base_Start_IT(&htim3);		//  This TIM3 using for calculate how many time all tasks was running.
+  //HAL_TIM_Base_Start(&htim3);
 
   /* USER CODE END 2 */
 
@@ -516,6 +528,51 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 420;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 10;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
   * @brief TIM4 Initialization Function
   * @param None
   * @retval None
@@ -655,6 +712,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -669,9 +727,17 @@ void StartDefaultTask(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
+
+
   /* Infinite loop */
   for(;;)
   {
+	// This task make test payload for test
+	for(int x = 0; x <= 10000; x++)
+	{
+	 	x++;
+	}
+
     osDelay(1);
   }
   /* USER CODE END 5 */
@@ -711,13 +777,9 @@ void StartLED_YELLOW_ADC(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  if(osSemaphoreAcquire(BtnSemHandle, osWaitForever) == osOK);							// Waiting on press button
+	  if(osSemaphoreAcquire(BtnSemHandle, osWaitForever) == osOK);							// Waiting on press button. Semaphore
 	  {
 		  HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
-
-//		  char test_str[] = "HELLO \n\r";
-//		  CDC_Transmit_FS(test_str, sizeof(test_str));
-
 		  osDelay(100);
 	  }
 	  osDelay(100);
@@ -739,8 +801,17 @@ void StartUART_Task(void *argument)
 	QUEUE_t msg;
   for(;;)
   {
-	osMessageQueueGet(UARTQueueHandle, &msg, 0, osWaitForever);		// Write for data on queue
-	CDC_Transmit_FS(msg.Buf, sizeof(msg.Buf));						// Transmit data over virtual comport
+	  // osMessageQueueGet waiting data on a queue (If data are in queue so print it)
+	osMessageQueueGet(UARTQueueHandle, &msg, 0, osWaitForever);			// Write for data on queue
+
+	// Counting how many characters will be transmitted
+	uint16_t buffer_size = 0;
+	while(msg.Buf[buffer_size] != '\0')
+	{
+		buffer_size ++;
+	}
+	// Transmit over virtual comport
+	CDC_Transmit_FS(msg.Buf, buffer_size);						// Transmit data over virtual comport
     osDelay(1);
   }
   /* USER CODE END StartUART_Task */
@@ -778,14 +849,15 @@ void StartTeadBtn_Task(void *argument)
 {
   /* USER CODE BEGIN StartTeadBtn_Task */
   /* Infinite loop */
-	QUEUE_t msg;
+  QUEUE_t msg;
   for(;;)
   {
 	  if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0))
 	  {
-		  osSemaphoreRelease(BtnSemHandle);								// Set BtnSemHandle semaphore
-		  strcpy(msg.Buf, "Btn pressed!!!\r\n");						// Write message
-		  osMessageQueuePut(UARTQueueHandle, &msg, 0, osWaitForever);	// Write data on queue
+		  osSemaphoreRelease(BtnSemHandle);									// Set semaphore BtnSemHandle semaphore (FOR TURN ON/OFF YELLOW LED)
+		  memset(msg.Buf, 0, sizeof(msg.Buf));								// Fill in buff '\0'
+		  strcpy(msg.Buf, "Button pressed!!!\r\n\0");						// Write message
+		  osMessageQueuePut(UARTQueueHandle, &msg, 0, osWaitForever);		// Write data on queue
 		  osDelay(300);
 	  }
 	  osDelay(100);
@@ -796,6 +868,32 @@ void StartTeadBtn_Task(void *argument)
 /* USER CODE BEGIN Header_StartShowResources */
 /**
 * @brief Function implementing the ShowResources thread.
+* Virtual COM Port takes list:
+*
+		######################################␊
+		>>>>> Free heap memory: 11040␍␊
+		| TASK NAME           | STATUS |   PRIOR⇥	|  STACK  |    NUM  |␊
+		ShowResources  ⇥		X⇥			24⇥			612⇥		7␍␊
+		defaultTask    ⇥		R⇥			24⇥			58⇥			1␍␊
+		IDLE           ⇥		R⇥			0⇥			104⇥		8␍␊
+		ADC_Task       ⇥		B⇥			24⇥			89⇥			5␍␊
+		LED_BLUE_BLINK ⇥		B⇥			24⇥			90⇥			2␍␊
+		TeadBtn_Task   ⇥		B⇥			24⇥			721⇥		6␍␊
+		LED_YELLOW_ADC ⇥		B⇥			24⇥			81⇥			3␍␊
+		UART_Task      ⇥		B⇥			24⇥			713⇥		4␍␊
+		Tmr Svc        ⇥		B⇥			2⇥			215⇥		9␍␊
+		-----------------------␊
+		␍| TASK NAME           | ABS TIME |   TIME% |␊
+		␍ShowResources  ⇥		4524⇥		⇥	<1%␍␊
+		 defaultTask    ⇥		4476896⇥	⇥	50%␍␊
+		 IDLE           ⇥		4427562⇥	⇥	49%␍␊
+		 LED_BLUE_BLINK ⇥		111⇥		⇥	<1%␍␊
+		 TeadBtn_Task   ⇥		537⇥		⇥	<1%␍␊
+		 ADC_Task       ⇥		652⇥		⇥	<1%␍␊
+		 UART_Task      ⇥		267⇥		⇥	<1%␍␊
+		 Tmr Svc        ⇥		0⇥			⇥	<1%␍␊
+		 LED_YELLOW_ADC ⇥		4⇥			⇥	<1%␍␊
+		 ######################################␊
 * @param argument: Not used
 * @retval None
 */
@@ -806,49 +904,62 @@ void StartShowResources(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(2000);
+		osDelay(5000);												// Every 5 second task management will print data
 
-    char str_freememory[20] = {0};
-    char buff[10] = {0};
-    strcat(str_freememory, "Free memory: ");
+		char str_end_of_line[3] = {'\r','\n'};
+		char str_sig = '-';
+		char buff[10] = {0};
 
-    freemem = xPortGetFreeHeapSize();							// Function return how many free memory.
-    itoa(freemem, buff, 10);
-    strcat(str_freememory, buff);
+		QUEUE_t msg;												// Make a queue
+		memset(msg.Buf, 0, sizeof(msg.Buf));						// Fill in buff '\0'
+		strcat(msg.Buf, ">>>>> Free heap memory: ");				// Add string to another (Total heap)
 
-    vTaskList(str_management_memory_str);						// Fill in str_management_memory_str array management task information
-//    strcat(str_management_memory_str, str_freememory);			// Add to the end of strint
+		freemem = xPortGetFreeHeapSize();							// Function return how many free memory.
+		itoa(freemem, buff, 10);
+		strcat(msg.Buf, buff);
+		strcat(msg.Buf, str_end_of_line);
 
-    char str_sig = '-';
-    char str_end_of_line[3] = {'\r','\n'};
-    int sum = 0;
-    for(int i = 0; i <= sizeof(str_management_memory_str); i++)
-    {
-    	if(str_management_memory_str[i] == '\0')
-    	{
-    		for(uint8_t j = 0; j<= 40; j++)
-    		{
-    			sum = i + j;
-    			str_management_memory_str[sum] = str_sig;
-    		}
-// 			strcat(str_management_memory_str, str_end_of_line);
-//    		strcat(str_management_memory_str, str_freememory);
+		// add a hat
+		strcat(msg.Buf, "| TASK NAME           | STATUS |   PRIOR	|  STACK  |    NUM  |\n\r\0");
 
-//    		strcat(str_management_memory_str, str_end_of_line);
-//    	    strcat(str_management_memory_str, str_freememory);			// Add to the end of string
-//    	    strcat(str_management_memory_str, str_end_of_line);
-    		str_management_memory_str[sum++] = '\r';
-    		str_management_memory_str[sum++] = '\n';
+		vTaskList(str_management_memory_str);						// Fill in str_management_memory_str array management task information
 
-//      	strcat(str_management_memory_str, str_freememory);
-//
-//    		strcat(str_management_memory_str, '\n');
+		// Finding the  end of string
+		uint16_t buffer_size = 0;
+		while(msg.Buf[buffer_size] != '\0')
+		{
+			buffer_size ++;
+		}
 
-    		CDC_Transmit_FS(str_management_memory_str, sizeof(str_management_memory_str));
-    		//CDC_Transmit_FS(str_end_of_line, sizeof(str_end_of_line));
-    		break;
-    	}
-    }
+		// Add str_management_memory_str to queue string
+		int i = 0;
+		for(i = 0; str_management_memory_str[i] != '\0'; i++)
+		{
+			// add data to queue
+			msg.Buf[buffer_size + i] = str_management_memory_str[i];
+		}
+
+		// add a hat
+		char str_line[] = {"-----------------------\n\r"};
+		char str_head_2[] = {"| TASK NAME           | ABS TIME |              TASK TIME% |\n\r"};
+		strcat(msg.Buf, str_line);
+		strcat(msg.Buf, str_head_2);
+
+
+		memset(str_management_memory_str, 0, sizeof(str_management_memory_str));	// Clean buffer
+
+		vTaskGetRunTimeStats(str_management_memory_str);							// Function return how much time all functions running.
+
+		buffer_size = buffer_size + i + (sizeof(str_line)-1) + (sizeof(str_head_2)-1);           // НЕ ВИВОДИТЬ СТРОКУ !!!!!!!!!!!!!!!!!! <<<<<<<<<<<<<<<<<<<
+		for(i = 0; str_management_memory_str[i] != '\0'; i++)
+		{
+			// add data to queue
+			msg.Buf[buffer_size + i] = str_management_memory_str[i];
+	    }
+		strcat(msg.Buf, "#########################################\n\r");
+
+		osMessageQueuePut(UARTQueueHandle, &msg, 0, osWaitForever);					// Write data on queue (In will print on StartUART_Task task)
+		//osDelay(1000);
   }
   /* USER CODE END StartShowResources */
 }
@@ -864,6 +975,11 @@ void StartShowResources(void *argument)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
+	if(htim->Instance == TIM3)
+	{
+		ulHighFreqebcyTimerTicks++;					// Update time tasks counter
+	}
+
 
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM2) {
